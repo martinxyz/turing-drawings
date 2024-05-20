@@ -1,13 +1,16 @@
 // Inspired by the original "turing drawings":
 // https://github.com/maximecb/Turing-Drawings/blob/master/programs.js#L44-L48
 
+use image::Luma;
 use rand::{thread_rng, Rng};
 
-const TILE_SIZE: usize = 64;
-const RESTARTS: usize = 20;
-const ITERATIONS: usize = 100;
+mod tile;
+use tile::TILE_SIZE;
 
-pub const AGENT_STATES: u8 = 8;
+const RESTARTS: usize = 500000;
+const ITERATIONS: usize = 200;
+
+pub const AGENT_STATES: u8 = 31;
 pub const LUT_SIZE: usize = AGENT_STATES as usize * 2;
 
 struct Agent {
@@ -16,36 +19,19 @@ struct Agent {
     state: u8,
 }
 
-struct Tile([bool; TILE_SIZE * TILE_SIZE]);
-
-impl Tile {
-    fn getpx(&self, x: i32, y: i32) -> bool {
-        self.0[Self::idx(x, y)]
-    }
-
-    fn setpx(&mut self, x: i32, y: i32, value: bool) {
-        self.0[Self::idx(x, y)] = value
-    }
-
-    fn idx(x: i32, y: i32) -> usize {
-        (y.rem_euclid(TILE_SIZE as i32) as usize) * TILE_SIZE
-            + x.rem_euclid(TILE_SIZE as i32) as usize
-    }
-
-    fn new() -> Self {
-        Tile([false; TILE_SIZE * TILE_SIZE])
-    }
-}
-
 fn main() {
     let mut rng = thread_rng();
-    let mut tile = Tile::new();
+    let mut tile = tile::Tile::new();
     let mut agent = Agent {
         x: (TILE_SIZE / 2) as i32,
         y: (TILE_SIZE / 2) as i32,
         state: 0,
     };
 
+    let mut canvas =
+        image::ImageBuffer::<Luma<f32>, Vec<f32>>::new(TILE_SIZE as u32, TILE_SIZE as u32);
+
+    println!("Generating...");
     for _ in 0..RESTARTS {
         let lut: [_; LUT_SIZE] = std::array::from_fn(|_| rng.gen::<u8>());
         for _ in 0..ITERATIONS {
@@ -61,20 +47,38 @@ fn main() {
             };
             agent.x += dx;
             agent.y += dy;
-            tile.setpx(agent.x, agent.y, (command & 0b001) != 0);
+            agent.x = agent.x.rem_euclid(TILE_SIZE as i32);
+            agent.y = agent.y.rem_euclid(TILE_SIZE as i32);
+
+            let white = (command & 0b001) != 0;
+            tile.setpx(agent.x, agent.y, white);
+            if white {
+                let px = canvas.get_pixel_mut(agent.x as u32, agent.y as u32);
+                *px = Luma([px[0] + 0.1]);
+            }
+
             assert!(AGENT_STATES < (1 << (8 - 3)));
             agent.state = (command >> 3).rem_euclid(AGENT_STATES);
         }
     }
 
-    for y in 0..TILE_SIZE as i32 {
-        let mut s = String::new();
-        for x in 0..TILE_SIZE as i32 {
-            s += match tile.getpx(x, y) {
-                false => ".",
-                true => "#",
-            };
+    println!("Rendering raw output...");
+    tile.render_image().save("output_raw.png").unwrap();
+
+    println!("Rendering fancy output...");
+    fn linear_to_srgb_gamma(l: f32) -> f32 {
+        if l <= 0.0031308 {
+            l * 12.92
+        } else {
+            1.055 * l.powf(1.0 / 2.4) - 0.055
         }
-        println!("{}", s);
     }
+    let canvas_gray = image::GrayImage::from_fn(TILE_SIZE as u32, TILE_SIZE as u32, |x, y| {
+        let l = canvas.get_pixel(x, y)[0];
+        let l = linear_to_srgb_gamma(l);
+        Luma([(l.clamp(0.0, 1.0) * 255.0).round() as u8])
+    });
+    canvas_gray.save("output.png").unwrap();
+
+    println!("Done!");
 }
