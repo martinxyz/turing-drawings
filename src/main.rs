@@ -1,14 +1,14 @@
 // Inspired by the original "turing drawings":
 // https://github.com/maximecb/Turing-Drawings/blob/master/programs.js#L44-L48
 
-use image::Luma;
+use image::{imageops, Luma};
 use rand::{thread_rng, Rng};
 
 mod tile;
 use tile::TILE_SIZE;
 
-const RESTARTS: usize = 500000;
-const ITERATIONS: usize = 200;
+const RESTARTS: usize = 1_000_000;
+const ITERATIONS: usize = 100;
 
 pub const AGENT_STATES: u8 = 31;
 pub const LUT_SIZE: usize = AGENT_STATES as usize * 2;
@@ -32,7 +32,7 @@ fn main() {
         image::ImageBuffer::<Luma<f32>, Vec<f32>>::new(TILE_SIZE as u32, TILE_SIZE as u32);
 
     println!("Generating...");
-    for _ in 0..RESTARTS {
+    for restart in 0..RESTARTS {
         let lut: [_; LUT_SIZE] = std::array::from_fn(|_| rng.gen::<u8>());
         for _ in 0..ITERATIONS {
             assert!(LUT_SIZE < 256);
@@ -59,6 +59,14 @@ fn main() {
 
             assert!(AGENT_STATES < (1 << (8 - 3)));
             agent.state = (command >> 3).rem_euclid(AGENT_STATES);
+        }
+
+        let n_blurs = 10;
+        if restart % (RESTARTS / n_blurs) == (RESTARTS / n_blurs) / 2 {
+            println!("blur...");
+            // veeeeery slow
+            canvas = imageops::blur(&canvas, 0.4);
+            println!("blur done");
         }
     }
 
